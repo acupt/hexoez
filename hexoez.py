@@ -22,14 +22,22 @@ def rewrite(file, op, target, argv):
                     state = 1
             elif state == 1:  # 属性区域之中，目标属性之前
                 if line.startswith(target + ':'):
-                    state = 2
+                    if line.strip() == target + ':':  # 参数在下一行，或者没有
+                        state = 2
+                    else:  # 参数就在本行
+                        values = get_values(line)
+                        old_values = values[:]
+                        op_values(op, values, argv)
+                        line = "%s: %s\n" % (target, line_single(values))
+                        state = 3
             elif state == 2:  # 属性区域之中，目标属性之中
                 if line.startswith(' ') or line.startswith('- '):
                     values.append(get_value(line))
                     continue
                 else:
                     old_values = values[:]
-                    line = op_values(op, values, argv) + line
+                    op_values(op, values, argv)
+                    line = line_multi(values) + line
                     state = 3
             file_data += line
     with open(file, "w") as f:
@@ -37,6 +45,28 @@ def rewrite(file, op, target, argv):
         print("%s %s %s %s -> %s" % (file, op, target, old_values, values))
         return 1
     return 0
+
+
+def get_values(line):
+    line = str(line)
+    line = line[line.index(':') + 1:]
+    line = line.strip()
+    values = []
+    if line.startswith('[') and line.endswith(']'):
+        # [1,2,"a"]
+        line = line[1:len(line) - 1]
+        for s in line.split(','):
+            s = s.strip()
+            if s.startswith('"') and s.endswith('"'):
+                values.append(s[1:len(s) - 1])
+            else:
+                values.append(s)
+    else:
+        if line.startswith('"') and line.endswith('"'):
+            values.append(line[1:len(line) - 1])
+        else:
+            values.append(line)
+    return values
 
 
 def get_value(line):
@@ -74,13 +104,35 @@ def op_values(op='', values=[], argv=[]):
         for i in range(0, len(values)):
             if values[i] == argv[0]:
                 values[i] = argv[1]
+
+
+def line_multi(values=[]):
     line = ''
     for v in values:
-        if ' ' in v:
-            line += ' - "' + v + '"\n'
-        else:
-            line += ' - ' + v + '\n'
+        v = safe_str(v)
+        line += ' - %s\n' % v
     return line
+
+
+def line_single(values=[]):
+    if len(values) == 0:
+        return ''
+    if len(values) == 1:
+        return safe_str(values[0])
+    line = '['
+    for v in values:
+        v = safe_str(v)
+        if len(line) > 1:
+            line += ','
+        line += v
+    return line + ']'
+
+
+def safe_str(s):
+    s = str(s)
+    if ' ' in s and not s.startswith('"'):
+        s = '"%s"' % s
+    return s
 
 
 def search(curpath, pattern, files=[]):
